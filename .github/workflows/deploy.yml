@@ -1,0 +1,41 @@
+name: Deploy to VPS
+
+# Auto-deploy on every push to main: SSH into the VPS, pull, install, run
+# migrations, rebuild, and zero-downtime reload the pm2 app.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /www/wwwroot/aicup2026
+            echo "→ pulling latest"
+            git fetch --all
+            git reset --hard origin/main
+            echo "→ installing deps"
+            npm ci
+            echo "→ applying migrations"
+            npx prisma migrate deploy
+            echo "→ building"
+            npm run build
+            echo "→ reloading pm2"
+            pm2 reload ecosystem.config.cjs --only aicup2026 --update-env || pm2 start ecosystem.config.cjs --only aicup2026
+            pm2 save
+            echo "✓ deploy complete"

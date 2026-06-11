@@ -43,3 +43,11 @@ next-env.d.ts
 # local logs
 build_start.log
 *.log
+
+# Firebase service account (PRIVATE KEY — never commit)
+firebase-adminsdk.json
+serviceAccount*.json
+*serviceaccount*.json
+
+# deploy keys — NEVER commit
+.deploy/
