@@ -158,18 +158,14 @@ function cleanGroup(s?: string): string {
 }
 
 export async function fetchTeams() {
-  const json = await cachedGet("tsdb:teams", `lookup_all_teams.php?id=${LEAGUE}`, TTL.teams);
-  if (json === null) return null;
-  const teams: any[] = json.teams ?? [];
-  return teams
-    .map((t) => ({
-      id: toNum(t.idTeam),
-      name: t.strTeam ?? null,
-      code: t.strTeamShort ?? null,
-      crestUrl: t.strBadge ?? null,
-      flagUrl: t.strBadge ?? null,
-    }))
-    .filter((t) => t.id != null);
+  // NOTE: TheSportsDB's lookup_all_teams for the World Cup league returns EVERY
+  // historical participant (60+ teams), not just this edition's. That pollutes
+  // the Teams page, so we don't use it. The real 2026 participants are created
+  // via ensureTeam() in syncFixtures/syncStandings (with name + badge), which is
+  // exactly the set of teams actually playing. Returning null = no-op here.
+  return null as
+    | { id: number; name: string; code: string | null; crestUrl: string | null; flagUrl: string | null }[]
+    | null;
 }
 
 export async function fetchSquad(teamId: number) {
