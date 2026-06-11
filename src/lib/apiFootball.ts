@@ -88,16 +88,39 @@ async function apiGet(
   if (!key) throw new Error("API_FOOTBALL_KEY is not set");
   const url = new URL(`https://${HOST}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
-  const res = await fetch(url, { headers: { "x-apisports-key": key } });
-  // Count the request as soon as it's made (even on error) — the provider does.
-  if (gate) await bumpQuota();
-  if (!res.ok) throw new Error(`API-Football ${path} → ${res.status}`);
-  const json = await res.json();
-  if (json.errors && Object.keys(json.errors).length > 0) {
-    throw new Error(`API-Football ${path} errors: ${JSON.stringify(json.errors)}`);
+
+  // We are about to spend a request. Count it AND mark the endpoint fetched
+  // BEFORE the call, so the TTL throttle holds even when the upstream errors
+  // (e.g. "free plan can't access this season"). Otherwise a persistently
+  // failing endpoint would re-hit the API every cycle and drain the quota.
+  if (gate) {
+    await bumpQuota();
+    await markFetched(gate.endpoint);
   }
-  if (gate) await markFetched(gate.endpoint);
-  return json.response ?? [];
+
+  try {
+    const res = await fetch(url, { headers: { "x-apisports-key": key } });
+    if (!res.ok) {
+      console.warn(`[api-football] ${path} → HTTP ${res.status}`);
+      if (gate) return null; // throttled; try again after TTL
+      throw new Error(`API-Football ${path} → ${res.status}`);
+    }
+    const json = await res.json();
+    if (json.errors && Object.keys(json.errors).length > 0) {
+      // Plan/parameter errors are expected (e.g. season not on the free plan):
+      // log once per TTL window and no-op rather than throw + retry-storm.
+      console.warn(`[api-football] ${path}: ${JSON.stringify(json.errors)}`);
+      if (gate) return null;
+      throw new Error(`API-Football ${path} errors: ${JSON.stringify(json.errors)}`);
+    }
+    return json.response ?? [];
+  } catch (err) {
+    if (gate) {
+      console.warn(`[api-football] ${path} failed:`, err);
+      return null; // throttled; recovers after TTL
+    }
+    throw err;
+  }
 }
 
 /** Today's API-Football usage (for the admin dashboard / cron response). */
