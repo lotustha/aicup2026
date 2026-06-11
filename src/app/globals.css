@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
-/* World Cup 2026 — web design system, ported 1:1 from the Flutter app
-   (lib/core/theme/app_colors.dart). Dark, sporty: midnight stadium bg,
-   energetic red primary, pitch-green "live", trophy gold. */
+/* World Cup 2026 — "liquid glass" design system. Dark, sporty: a vibrant color
+   mesh behind everything, with frosted translucent panels (backdrop-blur,
+   glossy top edge, soft depth) floating over it. Brand red, pitch green, gold. */
 @theme {
   --color-bg: #0b1020;
   --color-surface: #151b2e;
@@ -21,7 +21,7 @@
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
-  --radius-card: 16px;
+  --radius-card: 18px;
   --radius-pill: 999px;
 }
 
@@ -31,27 +31,82 @@ html {
 }
 
 body {
-  background: var(--color-bg);
+  background: transparent;
   color: var(--color-tprimary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-/* Reusable bits */
-.brand-gradient {
-  background-image: linear-gradient(135deg, #e8344e 0%, #b81e37 100%);
+/* ---- Liquid-glass backdrop: a fixed, colorful mesh the glass refracts ---- */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(45rem 45rem at 12% -8%, rgba(232, 52, 78, 0.28), transparent 60%),
+    radial-gradient(40rem 40rem at 92% 6%, rgba(61, 123, 255, 0.24), transparent 60%),
+    radial-gradient(46rem 46rem at 78% 102%, rgba(22, 199, 132, 0.20), transparent 60%),
+    radial-gradient(34rem 34rem at 2% 95%, rgba(255, 200, 61, 0.14), transparent 60%),
+    #0a0e1c;
 }
-.hero-gradient {
-  background-image: linear-gradient(180deg, #1e2740 0%, #0b1020 100%);
+.app-bg::after {
+  /* faint grain/sheen so large flats don't band */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(60rem 60rem at 50% 30%, rgba(255, 255, 255, 0.03), transparent 70%);
+}
+
+/* ---- Glass surfaces ---- */
+.card,
+.glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.035));
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius-card);
+  box-shadow:
+    0 10px 30px -12px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Stronger frosted panel for heroes / nav. */
+.glass-strong {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 20px 50px -18px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Interactive lift for tappable glass. */
+.glass-hover {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.glass-hover:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.20);
+  box-shadow:
+    0 22px 50px -16px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+/* ---- Vibrant accent gradients (stay solid — logo, live badge) ---- */
+.brand-gradient {
+  background-image: linear-gradient(135deg, #ff5470 0%, #e8344e 50%, #b81e37 100%);
 }
 .live-gradient {
-  background-image: linear-gradient(90deg, #16c784 0%, #0e9e68 100%);
+  background-image: linear-gradient(90deg, #1ee398 0%, #16c784 55%, #0e9e68 100%);
 }
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+/* Translucent tinted glass for the match hero. */
+.hero-gradient {
+  background:
+    radial-gradient(40rem 18rem at 20% -40%, rgba(232, 52, 78, 0.22), transparent 70%),
+    linear-gradient(180deg, rgba(30, 39, 64, 0.55), rgba(11, 16, 32, 0.35));
 }
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
@@ -59,5 +114,5 @@ body {
 .live-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #2a3454; border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

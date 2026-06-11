@@ -83,10 +83,10 @@ export default async function HomePage() {
           {hero && (
             <Link
               href={`/match/${hero.id}`}
-              className={`group block overflow-hidden rounded-card border bg-surface transition-shadow ${
+              className={`group block overflow-hidden rounded-card glass-strong glass-hover ${
                 liveHero
-                  ? "border-secondary/30 shadow-[0_0_40px_-12px_rgba(22,199,132,0.45)] hover:shadow-[0_0_55px_-10px_rgba(22,199,132,0.6)]"
-                  : "border-border hover:border-primary/50"
+                  ? "ring-1 ring-secondary/40 shadow-[0_0_55px_-14px_rgba(22,199,132,0.5)]"
+                  : "ring-1 ring-primary/20"
               }`}
             >
               <div className="hero-gradient relative px-5 py-7 sm:px-8 sm:py-9">

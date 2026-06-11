@@ -451,10 +451,20 @@ function LineupCard({ lineup, teamName }: { lineup: Lineup; teamName: string }) 
 function PitchPlayer({ slot }: { slot: LineupSlot }) {
   return (
     <div className="flex w-14 flex-col items-center gap-1 text-center">
-      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-xs font-black tabular-nums text-[#0e7a4b] shadow-md ring-2 ring-white/40">
-        {slot.number ?? "–"}
-      </span>
+      {slot.photoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={slot.photoUrl}
+          alt={slot.name}
+          className="h-10 w-10 rounded-full object-cover shadow-md ring-2 ring-white/70"
+        />
+      ) : (
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-xs font-black tabular-nums text-[#0e7a4b] shadow-md ring-2 ring-white/40">
+          {slot.number ?? "–"}
+        </span>
+      )}
       <span className="max-w-full truncate text-[10px] font-semibold text-white drop-shadow">
+        {slot.number ? `${slot.number} ` : ""}
         {lastName(slot.name)}
       </span>
     </div>

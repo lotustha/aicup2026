@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { prisma } from "@/lib/db";
 import * as S from "@/lib/serializers";
 
@@ -41,7 +42,35 @@ export async function getEvents(id: number): Promise<MatchEvent[]> {
 
 export async function getLineups(id: number): Promise<Lineup[]> {
   const rows = await prisma.lineup.findMany({ where: { fixtureId: id } });
-  return rows.map(S.lineup);
+  const lineups = rows.map(S.lineup);
+
+  // Enrich slots with the player's squad photo where the lineup itself has none,
+  // so the formation pitch can show faces "where possible".
+  const ids = new Set<number>();
+  for (const l of lineups) {
+    for (const s of [...(l.starters ?? []), ...(l.substitutes ?? [])]) {
+      if (s?.playerId) ids.add(s.playerId);
+    }
+  }
+  if (ids.size === 0) return lineups;
+
+  const players = await prisma.player.findMany({
+    where: { id: { in: [...ids] } },
+    select: { id: true, photoUrl: true },
+  });
+  const photoById = new Map(players.map((p) => [p.id, p.photoUrl]));
+
+  const fill = (slots: any[]) =>
+    (slots ?? []).map((s) => ({
+      ...s,
+      photoUrl: s.photoUrl ?? photoById.get(s.playerId) ?? null,
+    }));
+
+  return lineups.map((l) => ({
+    ...l,
+    starters: fill(l.starters as any[]),
+    substitutes: fill(l.substitutes as any[]),
+  }));
 }
 
 export async function getStats(id: number): Promise<TeamStats[]> {

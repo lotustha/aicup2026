@@ -100,7 +100,7 @@ export function MatchCard({ f }: { f: Fixture }) {
   return (
     <Link
       href={`/match/${f.id}`}
-      className="card block px-4 py-3 transition-colors hover:border-primary/50"
+      className="card glass-hover block px-4 py-3"
     >
       <div className="mb-3 flex items-center justify-between">
         <StatusPill>{f.stage ?? "World Cup"}</StatusPill>
