@@ -201,22 +201,22 @@ export default async function HomePage() {
         </div>
 
         {/* ---------- Right rail ---------- */}
-        <aside className="lg:col-span-4 lg:self-start">
-          <div className="lg:sticky lg:top-20">
-            <SectionHeader title="Upcoming" />
-            {upcomingList.length > 0 ? (
-              <div className="space-y-2">
-                {upcomingList.map((f) => (
-                  <MatchCard key={f.id} f={f} />
-                ))}
-              </div>
-            ) : (
-              <EmptyState
-                title="Nothing scheduled"
-                message="New fixtures will appear here soon."
-              />
-            )}
-          </div>
+        {/* Not sticky: backdrop-filter (glass) inside a position:sticky ancestor
+            glitches in several browsers (panels paint over siblings). */}
+        <aside className="lg:col-span-4">
+          <SectionHeader title="Upcoming" />
+          {upcomingList.length > 0 ? (
+            <div className="space-y-2">
+              {upcomingList.map((f) => (
+                <MatchCard key={f.id} f={f} />
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Nothing scheduled"
+              message="New fixtures will appear here soon."
+            />
+          )}
         </aside>
       </div>
     </div>
