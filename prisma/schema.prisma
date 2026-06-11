@@ -1,0 +1,202 @@
+// World Cup 2026 — backend data model.
+// Mirrors the Flutter freezed models so REST JSON maps 1:1 to the app.
+// Same schema is applied to the local server and the VPS (`prisma migrate deploy`).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A national team. `id` is the API-Football team id (stable across syncs).
+model Team {
+  id       Int     @id
+  name     String
+  code     String? // 3-letter FIFA code
+  crestUrl String?
+  flagUrl  String?
+  group    String? // group letter A–L
+  coach    String?
+
+  players       Player[]
+  homeFixtures  Fixture[]     @relation("HomeTeam")
+  awayFixtures  Fixture[]     @relation("AwayTeam")
+  standings     StandingRow[]
+  events        MatchEvent[]
+  lineups       Lineup[]
+  stats         TeamStats[]
+
+  updatedAt DateTime @updatedAt
+}
+
+/// A squad member with tournament stats.
+model Player {
+  id          Int     @id
+  teamId      Int
+  team        Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  name        String
+  number      Int?
+  position    String?
+  photoUrl    String?
+  age         Int?
+  nationality String?
+  goals       Int     @default(0)
+  assists     Int     @default(0)
+  appearances Int     @default(0)
+  yellowCards Int     @default(0)
+  redCards    Int     @default(0)
+
+  @@index([teamId])
+}
+
+/// A match.
+model Fixture {
+  id        Int      @id
+  kickoff   DateTime
+  homeId    Int
+  awayId    Int
+  home      Team     @relation("HomeTeam", fields: [homeId], references: [id])
+  away      Team     @relation("AwayTeam", fields: [awayId], references: [id])
+  homeScore Int?
+  awayScore Int?
+  status    String   @default("scheduled") // scheduled|live|halfTime|finished|postponed|cancelled
+  minute    Int?
+  stage     String?
+  group     String?
+  venue     String?
+  city      String?
+  referee   String?
+  round     Int?
+
+  // Hash of the last-seen live state, used to detect changes for notifications.
+  stateHash String?
+
+  events  MatchEvent[]
+  lineups Lineup[]
+  stats   TeamStats[]
+
+  updatedAt DateTime @updatedAt
+
+  @@index([kickoff])
+  @@index([status])
+  @@index([group])
+}
+
+/// A timeline event (goal, card, substitution).
+model MatchEvent {
+  id         Int     @id @default(autoincrement())
+  fixtureId  Int
+  fixture    Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  minute     Int
+  extraMinute Int?
+  type       String  // goal|ownGoal|penalty|yellowCard|redCard|substitution|var_
+  teamId     Int
+  team       Team    @relation(fields: [teamId], references: [id])
+  playerName String?
+  assistName String?
+  detail     String?
+
+  @@index([fixtureId])
+}
+
+/// A team's lineup for a match. Starters/substitutes stored as JSON arrays of
+/// LineupSlot { playerId, name, number, position, grid, photoUrl }.
+model Lineup {
+  id          Int     @id @default(autoincrement())
+  fixtureId   Int
+  fixture     Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  teamId      Int
+  team        Team    @relation(fields: [teamId], references: [id])
+  formation   String?
+  coach       String?
+  starters    Json    @default("[]")
+  substitutes Json    @default("[]")
+
+  @@unique([fixtureId, teamId])
+}
+
+/// Aggregated per-team match statistics.
+model TeamStats {
+  id            Int     @id @default(autoincrement())
+  fixtureId     Int
+  fixture       Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  teamId        Int
+  team          Team    @relation(fields: [teamId], references: [id])
+  possession    Int?
+  shots         Int     @default(0)
+  shotsOnTarget Int     @default(0)
+  corners       Int     @default(0)
+  fouls         Int     @default(0)
+  offsides      Int     @default(0)
+  yellowCards   Int     @default(0)
+  redCards      Int     @default(0)
+  passes        Int     @default(0)
+  passAccuracy  Int?
+
+  @@unique([fixtureId, teamId])
+}
+
+/// One row of a group table.
+model StandingRow {
+  id            Int    @id @default(autoincrement())
+  group         String
+  teamId        Int
+  team          Team   @relation(fields: [teamId], references: [id])
+  rank          Int
+  played        Int    @default(0)
+  win           Int    @default(0)
+  draw          Int    @default(0)
+  loss          Int    @default(0)
+  goalsFor      Int    @default(0)
+  goalsAgainst  Int    @default(0)
+  points        Int    @default(0)
+  form          String?
+
+  @@unique([group, teamId])
+  @@index([group])
+}
+
+/// A registered device (push target + favourites), keyed by FCM token.
+model Device {
+  id            String   @id @default(cuid())
+  fcmToken      String   @unique
+  platform      String?  // android|ios
+  favoriteTeams Int[]    @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  reads MessageRead[]
+}
+
+/// An in-app message (also optionally pushed via FCM). Audience is either a
+/// broadcast, a specific team's followers, or a single device.
+model Message {
+  id           String   @id @default(cuid())
+  title        String
+  body         String
+  type         String   @default("info") // info|goal|kickoff|result|announcement
+  audience     String   @default("all")  // all|team|device
+  teamId       Int?     // when audience = team
+  deviceId     String?  // when audience = device
+  fixtureId    Int?     // deep-link target
+  pushed       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  reads MessageRead[]
+
+  @@index([createdAt])
+}
+
+/// Per-device read receipt for a message.
+model MessageRead {
+  messageId String
+  deviceId  String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now())
+
+  @@id([messageId, deviceId])
+}
