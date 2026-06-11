@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { getFixtures } from "@/lib/site-data";
 import type { Fixture } from "@/lib/site-data";
-import { SectionHeader, MatchCard, EmptyState } from "@/components/site/ui";
+import {
+  SectionHeader,
+  MatchCard,
+  StatusPill,
+  EmptyState,
+} from "@/components/site/ui";
 import { dayLabel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -19,18 +24,18 @@ export default async function Page({
   const fixtures = await getFixtures();
 
   // Group letters that actually appear in the data, in canonical A–L order.
-  const present = GROUPS.filter((g) =>
-    fixtures.some((f) => f.group === g)
-  );
+  const present = GROUPS.filter((g) => fixtures.some((f) => f.group === g));
 
-  // Filter to the selected group if one is active and valid.
-  const filtered =
-    active && present.includes(active)
-      ? fixtures.filter((f) => f.group === active)
-      : fixtures;
+  // A selected group is only honoured when it actually exists in the data;
+  // anything else falls back to showing every fixture ("All").
+  const activeGroup = active && present.includes(active) ? active : null;
 
-  // Group filtered fixtures by date label, preserving chronological order
-  // (getFixtures returns rows ordered by kickoff ascending).
+  const filtered = activeGroup
+    ? fixtures.filter((f) => f.group === activeGroup)
+    : fixtures;
+
+  // Group filtered fixtures by date label. getFixtures() returns rows ordered
+  // by kickoff ascending, so the Map's insertion order is chronological.
   const byDate = new Map<string, Fixture[]>();
   for (const f of filtered) {
     const key = dayLabel(f.kickoff);
@@ -39,55 +44,81 @@ export default async function Page({
     else byDate.set(key, [f]);
   }
 
-  const chips: { label: string; value: string | null }[] = [
-    { label: "All", value: null },
-    ...present.map((g) => ({ label: g, value: g })),
-  ];
+  const totalDays = byDate.size;
+  const totalMatches = filtered.length;
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 pb-16">
-      {/* AppBar-style title */}
-      <header className="sticky top-0 z-10 -mx-4 mb-1 border-b border-border bg-bg/85 px-4 py-4 backdrop-blur">
-        <h1 className="text-2xl font-black tracking-tight text-tprimary">
-          Schedule
-        </h1>
+    <div className="pb-10 pt-6">
+      {/* Title */}
+      <header className="flex flex-wrap items-end justify-between gap-3 px-1">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-primary">
+            Fixtures
+          </p>
+          <h1 className="mt-1 text-3xl font-black tracking-tight text-tprimary md:text-4xl">
+            Schedule
+          </h1>
+        </div>
+        {totalMatches > 0 && (
+          <p className="text-sm font-medium text-tsecondary">
+            {totalMatches} {totalMatches === 1 ? "match" : "matches"}
+            {activeGroup ? ` • Group ${activeGroup}` : ""}
+          </p>
+        )}
       </header>
 
-      {/* Filter chips */}
-      <nav className="-mx-4 overflow-x-auto px-4 pb-2 pt-3">
-        <div className="flex w-max items-center gap-2">
-          {chips.map((c) => {
-            const isActive =
-              c.value === null ? active === null || !present.includes(active ?? "") : c.value === active;
-            const href = c.value === null ? "/schedule" : `/schedule?group=${c.value}`;
-            return (
-              <Link
-                key={c.label}
-                href={href}
-                className={`rounded-full px-4 py-1.5 text-sm font-bold transition-colors ${
-                  isActive
-                    ? "bg-primary/15 text-primary"
-                    : "bg-surface2 text-tsecondary hover:text-tprimary"
-                }`}
-              >
-                {c.value === null ? c.label : `Group ${c.label}`}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
+      {/* Group filter chips — omitted entirely when the data has no groups. */}
+      {present.length > 0 && (
+        <nav className="mt-5 overflow-x-auto pb-1">
+          <div className="flex w-max items-center gap-2">
+            <Link
+              href="/schedule"
+              className={`rounded-full px-4 py-1.5 text-sm font-bold transition-colors ${
+                activeGroup === null
+                  ? "bg-primary/15 text-primary"
+                  : "bg-surface2 text-tsecondary hover:text-tprimary"
+              }`}
+            >
+              All
+            </Link>
+            {present.map((g) => {
+              const isActive = g === activeGroup;
+              return (
+                <Link
+                  key={g}
+                  href={`/schedule?group=${g}`}
+                  className={`rounded-full px-4 py-1.5 text-sm font-bold transition-colors ${
+                    isActive
+                      ? "bg-primary/15 text-primary"
+                      : "bg-surface2 text-tsecondary hover:text-tprimary"
+                  }`}
+                >
+                  Group {g}
+                </Link>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
-      {/* Fixtures grouped by date */}
-      {byDate.size === 0 ? (
-        <div className="pt-4">
+      {/* Fixtures grouped by date, in a responsive grid per day. */}
+      {totalDays === 0 ? (
+        <div className="mt-6">
           <EmptyState title="No fixtures" message="Check back soon." />
         </div>
       ) : (
         <div>
           {Array.from(byDate.entries()).map(([dateLabel, list]) => (
             <section key={dateLabel}>
-              <SectionHeader title={dateLabel} />
-              <div className="space-y-2">
+              <SectionHeader
+                title={dateLabel}
+                action={
+                  <StatusPill>
+                    {list.length} {list.length === 1 ? "match" : "matches"}
+                  </StatusPill>
+                }
+              />
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {list.map((f) => (
                   <MatchCard key={f.id} f={f} />
                 ))}

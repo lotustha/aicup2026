@@ -71,6 +71,10 @@ model Fixture {
   referee   String?
   round     Int?
 
+  // Admin-controlled live stream embed (URL rendered in an iframe on the web
+  // match page / app Watch tab). Null = no stream.
+  streamUrl String?
+
   // Hash of the last-seen live state, used to detect changes for notifications.
   stateHash String?
 

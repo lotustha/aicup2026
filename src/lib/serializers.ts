@@ -65,6 +65,7 @@ export function fixture(f: any) {
     city: f.city ?? null,
     referee: f.referee ?? null,
     round: f.round ?? null,
+    streamUrl: f.streamUrl ?? null,
   };
 }
 

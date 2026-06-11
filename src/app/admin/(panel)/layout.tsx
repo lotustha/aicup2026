@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 const navLinks = [
   { href: "/admin", label: "Dashboard" },
+  { href: "/admin/streams", label: "Streams" },
   { href: "/admin/notify", label: "Send Notification" },
   { href: "/admin/messages", label: "Messages" },
 ];

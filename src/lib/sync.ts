@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import * as AF from "@/lib/apiFootball";
+import * as AF from "@/lib/provider";
 import { notifyTransition, type NotifyFixture } from "@/lib/notify";
 
 /**
@@ -115,6 +115,8 @@ type FixturePayload = NonNullable<Awaited<ReturnType<typeof AF.fetchFixtures>>>[
 
 /** Upsert just the Fixture row (no events/lineups/stats, no stateHash). */
 async function upsertFixtureCore(f: FixturePayload): Promise<void> {
+  // Callers guard these, but assert here so the types narrow for Prisma.
+  if (f.id == null || f.homeId == null || f.awayId == null) return;
   const data = {
     kickoff: f.kickoff,
     homeId: f.homeId,

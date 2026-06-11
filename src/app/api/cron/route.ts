@@ -6,7 +6,7 @@ import {
   syncLiveDetails,
   syncAll,
 } from "@/lib/sync";
-import { apiUsage } from "@/lib/apiFootball";
+import { apiUsage } from "@/lib/provider";
 
 /**
  * Manual / Vercel-Cron trigger for the sync engine.
