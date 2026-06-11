@@ -11,22 +11,99 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { prisma } from "@/lib/db";
+
 const HOST = process.env.API_FOOTBALL_HOST ?? "v3.football.api-sports.io";
 const LEAGUE = Number(process.env.WC_LEAGUE_ID ?? "1");
 const SEASON = Number(process.env.WC_SEASON ?? "2026");
 
-async function apiGet(path: string, params: Record<string, string | number> = {}): Promise<any[]> {
+// Hard daily request cap so the free-tier quota (~100/day) is never blown.
+const DAILY_LIMIT = Number(process.env.API_FOOTBALL_DAILY_LIMIT ?? "90");
+
+// Per-endpoint cache TTLs (ms). Within the TTL the poller serves the data
+// already in Postgres instead of spending a request. Tune via env if needed.
+const num = (v: string | undefined, d: number) => (v ? Number(v) : d);
+export const TTL = {
+  teams: num(process.env.TTL_TEAMS_MS, 7 * 24 * 3600_000), // ~weekly
+  squad: num(process.env.TTL_SQUAD_MS, 7 * 24 * 3600_000),
+  fixtures: num(process.env.TTL_FIXTURES_MS, 6 * 3600_000), // 6h
+  standings: num(process.env.TTL_STANDINGS_MS, 6 * 3600_000),
+  live: num(process.env.TTL_LIVE_MS, 90_000), // 90s
+  events: num(process.env.TTL_EVENTS_MS, 90_000),
+  lineups: num(process.env.TTL_LINEUPS_MS, 3600_000), // 1h (rarely change)
+  stats: num(process.env.TTL_STATS_MS, 180_000), // 3m
+};
+
+const dayKey = () => new Date().toISOString().slice(0, 10);
+
+async function quotaRemaining(): Promise<number> {
+  const row = await prisma.apiQuota.findUnique({ where: { day: dayKey() } });
+  return DAILY_LIMIT - (row?.count ?? 0);
+}
+
+async function bumpQuota(): Promise<void> {
+  const day = dayKey();
+  await prisma.apiQuota.upsert({
+    where: { day },
+    create: { day, count: 1 },
+    update: { count: { increment: 1 } },
+  });
+}
+
+/** True if this endpoint's cached data is older than its TTL (so worth fetching). */
+async function isDue(endpoint: string, ttlMs: number): Promise<boolean> {
+  const row = await prisma.apiCall.findUnique({ where: { endpoint } });
+  return !row || Date.now() - row.fetchedAt.getTime() >= ttlMs;
+}
+
+async function markFetched(endpoint: string): Promise<void> {
+  await prisma.apiCall.upsert({
+    where: { endpoint },
+    create: { endpoint },
+    update: { fetchedAt: new Date() },
+  });
+}
+
+/**
+ * GET an API-Football endpoint. When a `gate` is supplied the call is:
+ *   1. skipped if cached data is still within its TTL, and
+ *   2. skipped if today's request quota is exhausted.
+ * On skip it returns `null` (distinct from `[]`, which is a genuine empty
+ * response) so callers can no-op WITHOUT wiping existing Postgres data. This
+ * keeps real API requests to a minimum.
+ */
+async function apiGet(
+  path: string,
+  params: Record<string, string | number> = {},
+  gate?: { endpoint: string; ttlMs: number }
+): Promise<any[] | null> {
+  if (gate) {
+    if (!(await isDue(gate.endpoint, gate.ttlMs))) return null;
+    if ((await quotaRemaining()) <= 0) {
+      console.warn(`[api-football] daily quota (${DAILY_LIMIT}) reached — skipping ${gate.endpoint}`);
+      return null;
+    }
+  }
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) throw new Error("API_FOOTBALL_KEY is not set");
   const url = new URL(`https://${HOST}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
   const res = await fetch(url, { headers: { "x-apisports-key": key } });
+  // Count the request as soon as it's made (even on error) — the provider does.
+  if (gate) await bumpQuota();
   if (!res.ok) throw new Error(`API-Football ${path} → ${res.status}`);
   const json = await res.json();
   if (json.errors && Object.keys(json.errors).length > 0) {
     throw new Error(`API-Football ${path} errors: ${JSON.stringify(json.errors)}`);
   }
+  if (gate) await markFetched(gate.endpoint);
   return json.response ?? [];
+}
+
+/** Today's API-Football usage (for the admin dashboard / cron response). */
+export async function apiUsage(): Promise<{ used: number; limit: number; remaining: number }> {
+  const remaining = await quotaRemaining();
+  return { used: DAILY_LIMIT - remaining, limit: DAILY_LIMIT, remaining };
 }
 
 // ---- enum mapping ----
@@ -96,7 +173,8 @@ function mapStageGroup(round?: string): { stage: string | null; group: string | 
 // ---- fetchers + mappers (return Prisma-ready objects) ----
 
 export async function fetchTeams() {
-  const raw = await apiGet("teams", { league: LEAGUE, season: SEASON });
+  const raw = await apiGet("teams", { league: LEAGUE, season: SEASON }, { endpoint: "teams", ttlMs: TTL.teams });
+  if (raw === null) return null;
   return raw.map((x: any) => ({
     id: x.team?.id,
     name: x.team?.name,
@@ -107,7 +185,8 @@ export async function fetchTeams() {
 }
 
 export async function fetchSquad(teamId: number) {
-  const raw = await apiGet("players/squads", { team: teamId });
+  const raw = await apiGet("players/squads", { team: teamId }, { endpoint: `squad:${teamId}`, ttlMs: TTL.squad });
+  if (raw === null) return null;
   const players = raw[0]?.players ?? [];
   return players.map((p: any) => ({
     id: p.id,
@@ -121,7 +200,8 @@ export async function fetchSquad(teamId: number) {
 }
 
 export async function fetchStandings() {
-  const raw = await apiGet("standings", { league: LEAGUE, season: SEASON });
+  const raw = await apiGet("standings", { league: LEAGUE, season: SEASON }, { endpoint: "standings", ttlMs: TTL.standings });
+  if (raw === null) return null;
   const groups: any[][] = raw[0]?.league?.standings ?? [];
   const rows: any[] = [];
   for (const table of groups) {
@@ -148,12 +228,18 @@ export async function fetchStandings() {
 }
 
 export async function fetchFixtures() {
-  const raw = await apiGet("fixtures", { league: LEAGUE, season: SEASON });
+  const raw = await apiGet("fixtures", { league: LEAGUE, season: SEASON }, { endpoint: "fixtures", ttlMs: TTL.fixtures });
+  if (raw === null) return null;
   return raw.map(mapFixture);
 }
 
 export async function fetchLiveFixtures() {
-  const raw = await apiGet("fixtures", { league: LEAGUE, season: SEASON, live: "all" });
+  const raw = await apiGet(
+    "fixtures",
+    { league: LEAGUE, season: SEASON, live: "all" },
+    { endpoint: "fixtures:live", ttlMs: TTL.live }
+  );
+  if (raw === null) return null;
   return raw.map(mapFixture);
 }
 
@@ -182,7 +268,8 @@ function mapFixture(x: any) {
 }
 
 export async function fetchEvents(fixtureId: number) {
-  const raw = await apiGet("fixtures/events", { fixture: fixtureId });
+  const raw = await apiGet("fixtures/events", { fixture: fixtureId }, { endpoint: `events:${fixtureId}`, ttlMs: TTL.events });
+  if (raw === null) return null;
   return raw.map((e: any) => ({
     fixtureId,
     minute: e.time?.elapsed ?? 0,
@@ -196,7 +283,8 @@ export async function fetchEvents(fixtureId: number) {
 }
 
 export async function fetchLineups(fixtureId: number) {
-  const raw = await apiGet("fixtures/lineups", { fixture: fixtureId });
+  const raw = await apiGet("fixtures/lineups", { fixture: fixtureId }, { endpoint: `lineups:${fixtureId}`, ttlMs: TTL.lineups });
+  if (raw === null) return null;
   return raw.map((l: any) => ({
     fixtureId,
     teamId: l.team?.id,
@@ -219,25 +307,26 @@ function slot(p: any) {
 }
 
 export async function fetchStatistics(fixtureId: number) {
-  const raw = await apiGet("fixtures/statistics", { fixture: fixtureId });
+  const raw = await apiGet("fixtures/statistics", { fixture: fixtureId }, { endpoint: `stats:${fixtureId}`, ttlMs: TTL.stats });
+  if (raw === null) return null;
   return raw.map((s: any) => {
     const get = (type: string) =>
       s.statistics?.find((it: any) => it.type === type)?.value ?? null;
-    const num = (v: any) => (typeof v === "number" ? v : parseInt(v) || 0);
+    const toNum = (v: any) => (typeof v === "number" ? v : parseInt(v) || 0);
     const pct = (v: any) =>
       typeof v === "string" ? parseInt(v.replace("%", "")) || null : (v ?? null);
     return {
       fixtureId,
       teamId: s.team?.id,
       possession: pct(get("Ball Possession")),
-      shots: num(get("Total Shots")),
-      shotsOnTarget: num(get("Shots on Goal")),
-      corners: num(get("Corner Kicks")),
-      fouls: num(get("Fouls")),
-      offsides: num(get("Offsides")),
-      yellowCards: num(get("Yellow Cards")),
-      redCards: num(get("Red Cards")),
-      passes: num(get("Total passes")),
+      shots: toNum(get("Total Shots")),
+      shotsOnTarget: toNum(get("Shots on Goal")),
+      corners: toNum(get("Corner Kicks")),
+      fouls: toNum(get("Fouls")),
+      offsides: toNum(get("Offsides")),
+      yellowCards: toNum(get("Yellow Cards")),
+      redCards: toNum(get("Red Cards")),
+      passes: toNum(get("Total passes")),
       passAccuracy: pct(get("Passes %")),
     };
   });

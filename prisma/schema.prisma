@@ -200,3 +200,17 @@ model MessageRead {
 
   @@id([messageId, deviceId])
 }
+
+/// Tracks when each API-Football endpoint was last fetched, so the poller can
+/// skip calls that are still within their TTL (throttling = the main quota saver).
+model ApiCall {
+  endpoint  String   @id // e.g. "fixtures", "standings", "events:1001", "squad:6"
+  fetchedAt DateTime @default(now())
+}
+
+/// Daily API-Football request counter — a hard cap so the free-tier quota is
+/// never blown (survives restarts/deploys, unlike an in-memory counter).
+model ApiQuota {
+  day   String @id // "YYYY-MM-DD" (UTC)
+  count Int    @default(0)
+}

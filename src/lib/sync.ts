@@ -42,6 +42,7 @@ export async function ensureTeam(
 export async function syncTeamsAndSquads(): Promise<void> {
   try {
     const teams = await AF.fetchTeams();
+    if (teams === null) return; // cached/quota-capped — nothing to do
     for (const t of teams) {
       if (t.id == null) continue;
       try {
@@ -58,7 +59,7 @@ export async function syncTeamsAndSquads(): Promise<void> {
         });
 
         const squad = await AF.fetchSquad(t.id);
-        for (const p of squad) {
+        for (const p of squad ?? []) {
           if (p.id == null) continue;
           await prisma.player.upsert({
             where: { id: p.id },
@@ -94,6 +95,7 @@ export async function syncTeamsAndSquads(): Promise<void> {
 export async function syncFixtures(): Promise<void> {
   try {
     const fixtures = await AF.fetchFixtures();
+    if (fixtures === null) return; // cached/quota-capped
     for (const f of fixtures) {
       if (f.id == null || f.homeId == null || f.awayId == null) continue;
       try {
@@ -109,7 +111,7 @@ export async function syncFixtures(): Promise<void> {
   }
 }
 
-type FixturePayload = Awaited<ReturnType<typeof AF.fetchFixtures>>[number];
+type FixturePayload = NonNullable<Awaited<ReturnType<typeof AF.fetchFixtures>>>[number];
 
 /** Upsert just the Fixture row (no events/lineups/stats, no stateHash). */
 async function upsertFixtureCore(f: FixturePayload): Promise<void> {
@@ -139,6 +141,7 @@ async function upsertFixtureCore(f: FixturePayload): Promise<void> {
 export async function syncStandings(): Promise<void> {
   try {
     const rows = await AF.fetchStandings();
+    if (rows === null) return; // cached/quota-capped
     for (const r of rows) {
       if (r.teamId == null || r.group == null) continue;
       try {
@@ -191,6 +194,7 @@ export async function syncStandings(): Promise<void> {
 export async function syncLiveDetails(): Promise<void> {
   try {
     const live = await AF.fetchLiveFixtures();
+    if (live === null) return; // cached/quota-capped
     for (const f of live) {
       if (f.id == null || f.homeId == null || f.awayId == null) continue;
       try {
@@ -214,17 +218,23 @@ export async function syncLiveDetails(): Promise<void> {
         // (2) Upsert core so FK targets exist for events/lineups/stats.
         await upsertFixtureCore(f);
 
-        // (3) Replace events (delete + recreate).
+        // (3) Replace events (delete + recreate) — only when a fresh fetch
+        // happened. A null result means "cached/quota-capped": leave the
+        // existing events untouched (never wipe on a skipped fetch).
         let eventCount = 0;
         try {
           const events = await AF.fetchEvents(f.id);
-          const rows = events.filter((e) => e.teamId != null);
-          for (const e of rows) await ensureTeam(e.teamId);
-          await prisma.matchEvent.deleteMany({ where: { fixtureId: f.id } });
-          if (rows.length > 0) {
-            await prisma.matchEvent.createMany({ data: rows });
+          if (events !== null) {
+            const rows = events.filter((e) => e.teamId != null);
+            for (const e of rows) await ensureTeam(e.teamId);
+            await prisma.matchEvent.deleteMany({ where: { fixtureId: f.id } });
+            if (rows.length > 0) {
+              await prisma.matchEvent.createMany({ data: rows });
+            }
           }
-          eventCount = rows.length;
+          // Derive from the DB so the state hash is stable whether or not we
+          // refetched events this cycle.
+          eventCount = await prisma.matchEvent.count({ where: { fixtureId: f.id } });
         } catch (err) {
           console.error(`[sync] events ${f.id} failed:`, err);
         }
@@ -232,7 +242,7 @@ export async function syncLiveDetails(): Promise<void> {
         // (4) Lineups by (fixtureId,teamId).
         try {
           const lineups = await AF.fetchLineups(f.id);
-          for (const l of lineups) {
+          for (const l of lineups ?? []) {
             if (l.teamId == null) continue;
             await ensureTeam(l.teamId);
             await prisma.lineup.upsert({
@@ -260,7 +270,7 @@ export async function syncLiveDetails(): Promise<void> {
         // (5) Stats by (fixtureId,teamId).
         try {
           const stats = await AF.fetchStatistics(f.id);
-          for (const s of stats) {
+          for (const s of stats ?? []) {
             if (s.teamId == null) continue;
             await ensureTeam(s.teamId);
             await prisma.teamStats.upsert({

@@ -6,6 +6,7 @@ import {
   syncLiveDetails,
   syncAll,
 } from "@/lib/sync";
+import { apiUsage } from "@/lib/apiFootball";
 
 /**
  * Manual / Vercel-Cron trigger for the sync engine.
@@ -47,7 +48,9 @@ async function handle(req: Request): Promise<NextResponse> {
   await TASKS[task]();
   const ms = Date.now() - started;
 
-  return NextResponse.json({ ok: true, task, ms });
+  // Today's API-Football usage, so callers can watch the quota.
+  const quota = await apiUsage();
+  return NextResponse.json({ ok: true, task, ms, quota });
 }
 
 export async function GET(req: Request): Promise<NextResponse> {
